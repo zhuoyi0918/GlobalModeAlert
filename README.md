@@ -35,11 +35,12 @@ https://raw.githubusercontent.com/zhuoyi0918/GlobalModeAlert/main/GlobalModeAler
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `interval` | `30` | 持续处于全局/直连时，重复提醒的间隔（分钟） |
+| `interval` | `1` | 持续处于全局/直连时，重复提醒的间隔（分钟） |
 | `global` | `1` | `0` = 不提醒全局模式 |
 | `direct` | `1` | `0` = 不提醒直连模式 |
+| `debug` | `0` | `1` = 调试模式：每次运行都弹通知，显示判定结果和两个探针的原始数据 |
 
-检测频率由 `cronexp` 控制，默认 `*/10 * * * *`（每 10 分钟）。
+检测频率由 `cronexp` 控制，默认 `* * * * *`（每分钟）。`interval` 小于检测频率时，实际提醒间隔以检测频率为准。
 
 示例：只提醒全局、每小时提醒一次
 
@@ -47,10 +48,26 @@ https://raw.githubusercontent.com/zhuoyi0918/GlobalModeAlert/main/GlobalModeAler
 argument=interval=60&global=1&direct=0
 ```
 
+## 调试
+
+导入后没反应时，把 `argument` 改成 `...&debug=1`，然后手动运行脚本。每次运行都会弹出一条通知：
+
+```
+🐞 调试：判定为「全局」
+探针A(DIRECT): 非CN 日本 东京 1.2.3.4
+探针B(PROXY): 非CN JP 1.2.3.4
+```
+
+- 连调试通知都没有 → 脚本没运行，或系统通知权限被关（macOS：系统设置 → 通知 → Shadowrocket；同时检查专注模式）
+- 探针显示「请求失败」→ 对应接口不可达
+- 判定结果与实际模式不符 → 检查是否有其他规则覆盖了模块里的 `ipip.net` / `www.cloudflare.com` 规则
+
+排查完记得改回 `debug=0`。
+
 ## 提醒逻辑
 
 - 刚切到全局/直连 → 下一次检测时立即通知
-- 一直不切回 → 每隔 `interval` 分钟重复提醒
+- 一直不切回 → 每隔 `interval` 分钟重复提醒（默认每分钟）
 - 切回配置模式 → 状态自动重置
 - 两个探针都请求失败（断网等）→ 不做判断，不会误报
 

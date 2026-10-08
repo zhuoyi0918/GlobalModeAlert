@@ -4,6 +4,7 @@
 #!homepage=https://github.com/zhuoyi0918
 
 [Rule]
+DOMAIN,cloudflare.com,DIRECT
 DOMAIN-SUFFIX,ipip.net,DIRECT
 DOMAIN,www.cloudflare.com,PROXY
 

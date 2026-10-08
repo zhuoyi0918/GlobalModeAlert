@@ -1,7 +1,7 @@
 /**
  * 代理模式提醒 for Shadowrocket
  *
- * 探针 A：myip.ipip.net（模块规则 DIRECT）
+ * 探针 A：cloudflare.com/cdn-cgi/trace（模块规则 DIRECT），失败时回退 myip.ipip.net
  * 探针 B：www.cloudflare.com/cdn-cgi/trace（模块规则 PROXY）
  *
  *   配置模式：A=中国  B=境外   → 正常，不提醒
@@ -43,22 +43,7 @@ function get(url) {
   });
 }
 
-// 探针 A：DIRECT 出口是否在中国
-async function probeDirect() {
-  const data = await get("https://myip.ipip.net/json");
-  if (!data) return null;
-  try {
-    const d = JSON.parse(data).data;
-    const loc = d.location || [];
-    return { cn: loc[0] === "中国", ip: d.ip, where: loc.filter(Boolean).slice(0, 3).join(" ") };
-  } catch (e) {
-    return null;
-  }
-}
-
-// 探针 B：PROXY 出口是否在中国
-async function probeProxy() {
-  const data = await get("https://www.cloudflare.com/cdn-cgi/trace");
+function parseTrace(data) {
   if (!data) return null;
   const kv = {};
   data.split("\n").forEach(l => {
@@ -67,6 +52,29 @@ async function probeProxy() {
   });
   if (!kv.loc) return null;
   return { cn: kv.loc === "CN", ip: kv.ip, where: kv.loc };
+}
+
+// 探针 A：DIRECT 出口是否在中国
+// 优先用 Cloudflare 根域名（与探针 B 同源同格式），失败再回退 ipip.net
+// （ipip.net 对境外/机房 IP 经常拒绝服务，全局模式下会请求失败）
+async function probeDirect() {
+  const cf = parseTrace(await get("https://cloudflare.com/cdn-cgi/trace"));
+  if (cf) return cf;
+  const data = await get("https://myip.ipip.net/json");
+  if (!data) return null;
+  try {
+    const d = JSON.parse(data).data;
+    const loc = d.location || [];
+    if (!loc[0]) return null;
+    return { cn: loc[0] === "中国", ip: d.ip, where: loc.filter(Boolean).slice(0, 3).join(" ") };
+  } catch (e) {
+    return null;
+  }
+}
+
+// 探针 B：PROXY 出口是否在中国
+async function probeProxy() {
+  return parseTrace(await get("https://www.cloudflare.com/cdn-cgi/trace"));
 }
 
 function notify(mode, a, b) {
@@ -88,11 +96,12 @@ function notify(mode, a, b) {
 (async () => {
   const [a, b] = await Promise.all([probeDirect(), probeProxy()]);
 
-  // 判定：只用拿到结果的探针，拿不到就不下结论，避免误报
-  let mode = "rule";
+  // 判定：探针 A 境外 → 全局；探针 B 国内 → 直连；
+  // 只有两个探针都成功且 A 国内、B 境外才判定为配置模式，缺任何一个都不下结论
+  let mode = "unknown";
   if (a && !a.cn) mode = "global";
   else if (b && b.cn) mode = "direct";
-  else if (!a && !b) mode = "unknown";
+  else if (a && b) mode = "rule";
 
   if (debug) {
     const fmt = p => (p ? `${p.cn ? "CN" : "非CN"} ${p.where} ${p.ip}` : "请求失败");
